@@ -15,6 +15,7 @@
 #include "freertos/task.h"
 #include "nvs_flash.h"
 #include "protocol_examples_common.h"
+#include <bme680.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,138 +24,91 @@
 
 #define MAX_HTTP_RECV_BUFFER 512
 #define MAX_HTTP_OUTPUT_BUFFER 2048
+#define MAX_HTTP_POST 512
 static const char *TAG = "HTTP_CLIENT";
 
-esp_err_t _http_event_handler(esp_http_client_event_t *evt) {
-  static char *output_buffer; // Buffer to store response of http request from
-                              // event handler
-  static int output_len;      // Stores number of bytes read
+#define SDA_GPIO 8
+#define SCL_GPIO 7
+#define PORT 0
+#define ADDR BME680_I2C_ADDR_1
 
-  switch (evt->event_id) {
-  case HTTP_EVENT_ERROR:
-    ESP_LOGD(TAG, "HTTP_EVENT_ERROR");
-    break;
-
-  case HTTP_EVENT_ON_CONNECTED:
-    ESP_LOGD(TAG, "HTTP_EVENT_ON_CONNECTED");
-    break;
-
-  case HTTP_EVENT_HEADER_SENT:
-    ESP_LOGD(TAG, "HTTP_EVENT_HEADER_SENT");
-    break;
-
-  case HTTP_EVENT_ON_HEADER:
-    ESP_LOGD(TAG, "HTTP_EVENT_ON_HEADER, key=%s, value=%s", evt->header_key,
-             evt->header_value);
-    break;
-
-  case HTTP_EVENT_ON_DATA:
-    ESP_LOGD(TAG, "HTTP_EVENT_ON_DATA, len=%d", evt->data_len);
-    /*
-     *  Check for chunked encoding is added as the URL for chunked encoding used
-     * in this example returns binary data. However, event handler can also be
-     * used in case chunked encoding is used.
-     */
-    if (!esp_http_client_is_chunked_response(evt->client)) {
-      // If user_data buffer is configured, copy the response into the buffer
-      if (evt->user_data) {
-        memcpy(evt->user_data + output_len, evt->data, evt->data_len);
-      } else {
-        if (output_buffer == NULL) {
-          output_buffer =
-              (char *)malloc(esp_http_client_get_content_length(evt->client));
-          output_len = 0;
-          if (output_buffer == NULL) {
-            ESP_LOGE(TAG, "Failed to allocate memory for output buffer");
-            return ESP_FAIL;
-          }
-        }
-        memcpy(output_buffer + output_len, evt->data, evt->data_len);
-      }
-      output_len += evt->data_len;
-    }
-
-    break;
-
-  case HTTP_EVENT_ON_FINISH:
-    ESP_LOGD(TAG, "HTTP_EVENT_ON_FINISH");
-    if (output_buffer != NULL) {
-      free(output_buffer);
-      output_buffer = NULL;
-    }
-    output_len = 0;
-    break;
-
-  case HTTP_EVENT_DISCONNECTED:
-    ESP_LOGI(TAG, "HTTP_EVENT_DISCONNECTED");
-    if (output_buffer != NULL) {
-      free(output_buffer);
-      output_buffer = NULL;
-    }
-    output_len = 0;
-    break;
-  }
-
-  return ESP_OK;
-}
-
-static void http_rest_with_hostname_path(void) {
-  char response_buffer[MAX_HTTP_OUTPUT_BUFFER] = {0};
-
+static void http_rest_with_hostname_path(bme680_values_float_t *values) {
   esp_http_client_config_t config = {
       .host = "linux-desktop.local",
       .port = 8086,
       .path = "/write?db=hum",
       .method = HTTP_METHOD_POST,
       .transport_type = HTTP_TRANSPORT_OVER_TCP,
-      .event_handler = _http_event_handler,
-      .user_data = response_buffer,
   };
   esp_http_client_handle_t client = esp_http_client_init(&config);
 
   // POST
-  const char *post_data = "sensor,location=office temperature=22.0";
+  char post_data[MAX_HTTP_POST];
+  snprintf(post_data, MAX_HTTP_POST,
+           "sensor,location=office temperature=%.2f\n"
+           "sensor,location=office humidity=%.2f\n"
+           "sensor,location=office pressure=%.2f\n",
+           values->temperature, values->humidity, values->pressure);
   esp_http_client_set_post_field(client, post_data, strlen(post_data));
   esp_err_t err = esp_http_client_perform(client);
   if (err == ESP_OK) {
-    ESP_LOGI(TAG, "HTTP POST Status = %d, content_length = %lld",
+    ESP_LOGD(TAG, "HTTP POST Status = %d, content_length = %lld",
              esp_http_client_get_status_code(client),
              esp_http_client_get_content_length(client));
-    puts(response_buffer);
   } else {
     ESP_LOGE(TAG, "HTTP POST request failed: %s", esp_err_to_name(err));
   }
 
-  post_data = "sensor,location=office humidity=45.0";
-  esp_http_client_set_post_field(client, post_data, strlen(post_data));
-  err = esp_http_client_perform(client);
-  if (err == ESP_OK) {
-    ESP_LOGI(TAG, "HTTP POST Status = %d, content_length = %lld",
-             esp_http_client_get_status_code(client),
-             esp_http_client_get_content_length(client));
-    puts(response_buffer);
-  } else {
-    ESP_LOGE(TAG, "HTTP POST request failed: %s", esp_err_to_name(err));
-  }
-
-  post_data = "sensor,location=office pressure=1000.0";
-  esp_http_client_set_post_field(client, post_data, strlen(post_data));
-  err = esp_http_client_perform(client);
-  if (err == ESP_OK) {
-    ESP_LOGI(TAG, "HTTP POST Status = %d, content_length = %lld",
-             esp_http_client_get_status_code(client),
-             esp_http_client_get_content_length(client));
-    puts(response_buffer);
-  } else {
-    ESP_LOGE(TAG, "HTTP POST request failed: %s", esp_err_to_name(err));
-  }
   esp_http_client_cleanup(client);
 }
 
-static void http_test_task(void *pvParameters) {
-  http_rest_with_hostname_path();
-  ESP_LOGI(TAG, "Finish http example");
-  vTaskDelete(NULL);
+void bme680_test(void *pvParameters) {
+  bme680_t sensor = {};
+
+  ESP_LOGI(TAG, "Init BME 680 at %X, %X", ADDR, PORT);
+  ESP_ERROR_CHECK(bme680_init_desc(&sensor, ADDR, PORT, SDA_GPIO, SCL_GPIO));
+
+  // init the sensor
+  ESP_ERROR_CHECK(bme680_init_sensor(&sensor));
+
+  // // Changes the oversampling rates to 4x oversampling for temperature
+  // // and 2x oversampling for humidity. Pressure measurement is skipped.
+  // bme680_set_oversampling_rates(&sensor, BME680_OSR_4X, BME680_OSR_NONE,
+  //                               BME680_OSR_2X);
+
+  // // Change the IIR filter size for temperature and pressure to 7.
+  // bme680_set_filter_size(&sensor, BME680_IIR_SIZE_7);
+
+  // // Change the heater profile 0 to 200 degree Celsius for 100 ms.
+  // bme680_set_heater_profile(&sensor, 0, 200, 100);
+  bme680_use_heater_profile(&sensor, -1);
+
+  // // Set ambient temperature to 10 degree Celsius
+  // bme680_set_ambient_temperature(&sensor, 10);
+
+  // as long as sensor configuration isn't changed, duration is constant
+  uint32_t duration;
+  bme680_get_measurement_duration(&sensor, &duration);
+
+  TickType_t last_wakeup = xTaskGetTickCount();
+
+  bme680_values_float_t values;
+  while (true) {
+    // trigger the sensor to start one TPHG measurement cycle
+    ESP_ERROR_CHECK(bme680_force_measurement(&sensor));
+    // passive waiting until measurement results are available
+    vTaskDelay(duration);
+
+    // get the results and do something with them
+    ESP_ERROR_CHECK(bme680_get_results_float(&sensor, &values));
+    ESP_LOGI(TAG, "BME680 Sensor: %.2f °C, %.2f %%, %.2f hPa, %.2f Ohm",
+             values.temperature, values.humidity, values.pressure,
+             values.gas_resistance);
+
+    http_rest_with_hostname_path(&values);
+    // passive waiting until 10 seconds is over
+    vTaskDelayUntil(&last_wakeup, pdMS_TO_TICKS(10000));
+  }
 }
 
 void app_main(void) {
@@ -175,5 +129,7 @@ void app_main(void) {
   ESP_ERROR_CHECK(example_connect());
   ESP_LOGI(TAG, "Connected to AP, begin http example");
 
-  xTaskCreate(&http_test_task, "http_test_task", 8192, NULL, 5, NULL);
+  ESP_ERROR_CHECK(i2cdev_init());
+
+  xTaskCreate(bme680_test, "bme680_test", 8192, NULL, 5, NULL);
 }
