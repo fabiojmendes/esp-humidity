@@ -65,26 +65,13 @@ static void http_rest_with_hostname_path(bme680_values_float_t *values) {
 void bme680_test(void *pvParameters) {
   bme680_t sensor = {};
 
-  ESP_LOGI(TAG, "Init BME 680 at %X, %X", ADDR, PORT);
+  ESP_LOGI(TAG, "Init BME 680 at %#x port %d", ADDR, PORT);
   ESP_ERROR_CHECK(bme680_init_desc(&sensor, ADDR, PORT, SDA_GPIO, SCL_GPIO));
 
   // init the sensor
   ESP_ERROR_CHECK(bme680_init_sensor(&sensor));
 
-  // // Changes the oversampling rates to 4x oversampling for temperature
-  // // and 2x oversampling for humidity. Pressure measurement is skipped.
-  // bme680_set_oversampling_rates(&sensor, BME680_OSR_4X, BME680_OSR_NONE,
-  //                               BME680_OSR_2X);
-
-  // // Change the IIR filter size for temperature and pressure to 7.
-  // bme680_set_filter_size(&sensor, BME680_IIR_SIZE_7);
-
-  // // Change the heater profile 0 to 200 degree Celsius for 100 ms.
-  // bme680_set_heater_profile(&sensor, 0, 200, 100);
-  bme680_use_heater_profile(&sensor, -1);
-
-  // // Set ambient temperature to 10 degree Celsius
-  // bme680_set_ambient_temperature(&sensor, 10);
+  bme680_use_heater_profile(&sensor, BME680_HEATER_NOT_USED);
 
   // as long as sensor configuration isn't changed, duration is constant
   uint32_t duration;
