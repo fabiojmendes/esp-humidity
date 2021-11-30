@@ -7,42 +7,38 @@
    CONDITIONS OF ANY KIND, either express or implied.
 */
 
-#include "esp_event.h"
-#include "esp_log.h"
-#include "esp_netif.h"
-#include "esp_system.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "nvs_flash.h"
-#include "protocol_examples_common.h"
-#include <bme680.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "esp_http_client.h"
+#include <esp_event.h>
+#include <esp_http_client.h>
+#include <esp_log.h>
+#include <esp_netif.h>
+#include <esp_system.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <nvs_flash.h>
 
-#define MAX_HTTP_RECV_BUFFER 512
-#define MAX_HTTP_OUTPUT_BUFFER 2048
+#include <bme680.h>
+#include <protocol_examples_common.h>
+
 #define MAX_HTTP_POST 512
-static const char *TAG = "HTTP_CLIENT";
+static const char *TAG = "SENSOR";
 
-#define SDA_GPIO 8
-#define SCL_GPIO 7
 #define PORT 0
 #define ADDR BME680_I2C_ADDR_1
 
-static void http_rest_with_hostname_path(bme680_values_float_t *values) {
+static void influx_post(bme680_values_float_t *values) {
   esp_http_client_config_t config = {
-      .host = "linux-desktop.local",
-      .port = 8086,
-      .path = "/write?db=hum",
+      .host = CONFIG_INFLUXDB_HOST,
+      .port = CONFIG_INFLUXDB_PORT,
+      .path = "/write?db=" CONFIG_INFLUXDB_DB,
       .method = HTTP_METHOD_POST,
       .transport_type = HTTP_TRANSPORT_OVER_TCP,
   };
   esp_http_client_handle_t client = esp_http_client_init(&config);
 
-  // POST
   char post_data[MAX_HTTP_POST];
   snprintf(post_data, MAX_HTTP_POST,
            "sensor,location=office temperature=%.2f\n"
@@ -62,11 +58,12 @@ static void http_rest_with_hostname_path(bme680_values_float_t *values) {
   esp_http_client_cleanup(client);
 }
 
-void bme680_test(void *pvParameters) {
+void bme680_read(void *pvParameters) {
   bme680_t sensor = {};
 
   ESP_LOGI(TAG, "Init BME 680 at %#x port %d", ADDR, PORT);
-  ESP_ERROR_CHECK(bme680_init_desc(&sensor, ADDR, PORT, SDA_GPIO, SCL_GPIO));
+  ESP_ERROR_CHECK(bme680_init_desc(&sensor, ADDR, PORT, CONFIG_BME680_SDA,
+                                   CONFIG_BME680_SCL));
 
   // init the sensor
   ESP_ERROR_CHECK(bme680_init_sensor(&sensor));
@@ -92,7 +89,7 @@ void bme680_test(void *pvParameters) {
              values.temperature, values.humidity, values.pressure,
              values.gas_resistance);
 
-    http_rest_with_hostname_path(&values);
+    influx_post(&values);
     // passive waiting until 10 seconds is over
     vTaskDelayUntil(&last_wakeup, pdMS_TO_TICKS(10000));
   }
@@ -114,9 +111,9 @@ void app_main(void) {
    * examples/protocols/README.md for more information about this function.
    */
   ESP_ERROR_CHECK(example_connect());
-  ESP_LOGI(TAG, "Connected to AP, begin http example");
+  ESP_LOGI(TAG, "Connected to AP, begin humidity sensor");
 
   ESP_ERROR_CHECK(i2cdev_init());
 
-  xTaskCreate(bme680_test, "bme680_test", 8192, NULL, 5, NULL);
+  xTaskCreate(bme680_read, "bme680_read", 8192, NULL, 5, NULL);
 }

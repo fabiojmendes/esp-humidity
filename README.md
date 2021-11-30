@@ -1,3 +1,7 @@
-# ESP HTTP Client Example
+# ESP Humidity Sensor
 
-See the README.md file in the upper level 'examples' directory for more information about examples.
+Simple humidity sensor device that reads data from a BME680 and pushes the measurements to a influxdb using the esp http client.
+
+Depends on:
+- https://github.com/espressif/esp-idf
+- https://github.com/UncleRus/esp-idf-lib

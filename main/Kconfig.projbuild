@@ -1,0 +1,23 @@
+menu "Sensor Configuration"
+
+    config INFLUXDB_HOST
+        string "InfluxDB Host"
+        default "localhost"
+
+    config INFLUXDB_PORT
+        int "InfluxDB Port"
+        default 8086
+
+    config INFLUXDB_DB
+        string "InfluxDB Database"
+        default "test"
+
+    config BME680_SCL
+        int "BME680 SCL GPIO"
+        default 7
+
+    config BME680_SDA
+        int "BME680 SDA GPIO"
+        default 8
+
+endmenu
