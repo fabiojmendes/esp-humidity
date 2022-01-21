@@ -24,10 +24,12 @@
 #include <protocol_examples_common.h>
 
 #define MAX_HTTP_POST 512
-static const char *TAG = "SENSOR";
+#define LOCATION CONFIG_LWIP_LOCAL_HOSTNAME
 
 #define PORT 0
 #define ADDR BME680_I2C_ADDR_1
+
+static const char *TAG = "SENSOR";
 
 static void influx_post(bme680_values_float_t *values) {
   esp_http_client_config_t config = {
@@ -41,9 +43,9 @@ static void influx_post(bme680_values_float_t *values) {
 
   char post_data[MAX_HTTP_POST];
   snprintf(post_data, MAX_HTTP_POST,
-           "sensor,location=office temperature=%.2f\n"
-           "sensor,location=office humidity=%.2f\n"
-           "sensor,location=office pressure=%.2f\n",
+           "sensor,location=" LOCATION " temperature=%.2f\n"
+           "sensor,location=" LOCATION " humidity=%.2f\n"
+           "sensor,location=" LOCATION " pressure=%.2f\n",
            values->temperature, values->humidity, values->pressure);
   esp_http_client_set_post_field(client, post_data, strlen(post_data));
   esp_err_t err = esp_http_client_perform(client);
