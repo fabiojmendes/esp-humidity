@@ -1,0 +1,4 @@
+# vim: ft=yaml
+
+CompileFlags:
+  Remove: [-fstrict-volatile-bitfields, -fno-tree-switch-conversion]
